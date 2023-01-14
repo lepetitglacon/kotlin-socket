@@ -1,6 +1,8 @@
 import java.io.*
+import java.lang.Exception
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.random.Random
 
 fun main(args: Array<String>) {
@@ -9,8 +11,8 @@ fun main(args: Array<String>) {
 
 class Server {
     private val serverSocket: ServerSocket
-
-    val clients = mutableListOf<HandleClient>()
+    val clients = mutableListOf<Client>()
+    val players = mutableListOf<Player>()
 
     constructor(port: Int) {
         serverSocket = ServerSocket(port)
@@ -21,58 +23,88 @@ class Server {
         while (true) {
             val clientSocket = serverSocket.accept()
             println("New client connected: ${clientSocket.inetAddress.hostAddress}")
-            val hc = HandleClient(clientSocket)
+            val hc = Client(clientSocket)
             clients.add(hc)
 
             Thread {
                 hc.start()
-//                HandleClient(clientSocket).start()
             }.start()
         }
     }
 
-    inner class HandleClient(val clientSocket: Socket) {
-
+    inner class Client(val clientSocket: Socket) {
         val output = ObjectOutputStream(clientSocket.getOutputStream())
-
         val name = Random.nextBytes(8).toString()
+        var playerId = 0
 
         fun start() {
-            var request: String = ""
 
+            // Socket input thread
             Thread {
-                val input = ObjectInputStream(clientSocket.getInputStream())
-                println("reading stream")
-                while (true) {
-//                    synchronized(request) {
-//                        request = input.readObject() as String
-//                    }
-                    request = input.readObject() as String
-                    println("Received from client: $request")
-                    println(clients)
-                    clients.forEach {
-                        println(it)
-                        println(it.output)
-                        it.output.writeObject("${clients.find { it.clientSocket == clientSocket }?.name}: $request")
+                try {
+                    val input = ObjectInputStream(clientSocket.getInputStream())
+                    while (true) {
+                        handleRequest(input.readObject() as Request)
                     }
+                } catch (e: Exception) {
+                    clients.remove(this)
+                    players.removeIf { it.id == playerId }
                 }
+
             }.start()
 
+            // Server thread
             while (true) {
+                Thread.sleep(100)
+            }
+        }
 
+        fun handleRequest(request: Request) {
+            when (request.command) {
+                "connection" -> {
+                    val player = request.data as Player
+                    val id = id.getAndIncrement()
+                    playerId = id
+                    player.id = id
+                    synchronized(players) {
+                        players.add(player)
+                    }
+                    sendToClient(this, "connection", id)
+                }
+                "players" -> {
+                    println(players)
+                    synchronized(players) {
+                        sendToClient(this, "players", players)
+                    }
+                }
+                "message" -> {
+                    sendMessage(request.data as String)
+                }
+            }
+        }
+
+        fun sendToClient(client: Client, command: String, data: Any) {
+            val req = Request(command, data)
+            client.output.writeUnshared(req)
+            client.output.reset()
+        }
+
+        fun sendToClients(command: String, data: Any) {
+            val req = Request(command, data)
+            clients.forEach {
+                it.output.writeObject(req)
+            }
+        }
+
+        fun sendMessage(message: String) {
+            val req = Request("message", "$this : $message")
+            clients.filter { it != this }.forEach {
+                it.output.writeObject(req)
             }
         }
     }
 
-    private fun handleClient(clientSocket: Socket) {
-        val input = BufferedReader(InputStreamReader(clientSocket.getInputStream()))
-        val output = PrintWriter(clientSocket.getOutputStream(), true)
-
-        while (true) {
-            val request = input.readLine() ?: break
-            println("Received from client: $request")
-            clients.forEach {  }
-//            output.println("${clients.find { it == clientSocket }?.inetAddress}: $request")
-        }
+    companion object {
+        var id = AtomicInteger(1)
     }
 }

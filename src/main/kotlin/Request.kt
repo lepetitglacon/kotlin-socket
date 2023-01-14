@@ -1,4 +1,3 @@
 import java.io.Serializable
 
-class Request(val data: Any): Serializable {
-}
+data class Request(val command: String, val data: Any) : Serializable
