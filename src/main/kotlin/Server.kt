@@ -12,7 +12,7 @@ fun main(args: Array<String>) {
 class Server {
     private val serverSocket: ServerSocket
     val clients = mutableListOf<Client>()
-    val players = mutableListOf<Player>()
+    val players = mutableMapOf<Int, Player>()
 
     constructor(port: Int) {
         serverSocket = ServerSocket(port)
@@ -47,8 +47,9 @@ class Server {
                         handleRequest(input.readObject() as Request)
                     }
                 } catch (e: Exception) {
+                    println("client $playerId disconnected")
                     clients.remove(this)
-                    players.removeIf { it.id == playerId }
+                    players.remove(playerId)
                 }
 
             }.start()
@@ -67,28 +68,47 @@ class Server {
                     playerId = id
                     player.id = id
                     synchronized(players) {
-                        players.add(player)
+                        players[id] = player
                     }
-                    sendToClient(this, "connection", id)
-                }
-                "players" -> {
                     println(players)
+                    resetClientsOutput()
+                    // send to client his ID
+                    sendToClient(this, "connection", id)
+                    // send players to every client
                     synchronized(players) {
-                        sendToClient(this, "players", players)
+                        sendToClients("players", players.values.toList())
                     }
+                }
+                "getPositions" -> {
+
                 }
                 "message" -> {
                     sendMessage(request.data as String)
                 }
+                "newPlayerPosition" -> {
+                    val newPlayer = request.data as Player
+                    //println("new player pos ${newPlayer.x} ${newPlayer.y}")
+                    resetClientsOutput()
+                    synchronized(players) {
+                        players[newPlayer.id] = newPlayer
+                        sendToClients("players", players.values.toList())
+                    }
+                }
             }
         }
 
+        /**
+         * Sends data to a client
+         */
         fun sendToClient(client: Client, command: String, data: Any) {
             val req = Request(command, data)
-            client.output.writeUnshared(req)
-            client.output.reset()
+            client.output.writeObject(req)
+
         }
 
+        /**
+         * Sends data to all clients
+         */
         fun sendToClients(command: String, data: Any) {
             val req = Request(command, data)
             clients.forEach {
@@ -96,11 +116,21 @@ class Server {
             }
         }
 
+        /**
+         * Sends a text message to all clients
+         */
         fun sendMessage(message: String) {
             val req = Request("message", "$this : $message")
             clients.filter { it != this }.forEach {
                 it.output.writeObject(req)
             }
+        }
+
+        /**
+         * resets clients output ObjectOutputStream to reset data in stream
+         */
+        fun resetClientsOutput() {
+            clients.forEach { it.output.reset() }
         }
     }
 

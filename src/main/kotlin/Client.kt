@@ -5,6 +5,7 @@ import java.lang.Exception
 import java.net.Socket
 import java.util.*
 import javax.swing.JFrame
+import javax.swing.SwingUtilities
 
 
 fun main() {
@@ -12,36 +13,24 @@ fun main() {
 }
 
 object Client {
-    private val socket: Socket = Socket("localhost", 8080)
+    val socket: Socket = Socket("localhost", 8080)
     private val output: ObjectOutputStream = ObjectOutputStream(socket.getOutputStream())
     private var connected = false
 
     private val scanner = Scanner(System.`in`)
 
-    private val frame: JFrame = JFrame()
-    private val panel: GamePanel = GamePanel()
+    val frame: Window = Window()
+    val panel: GamePanel = GamePanel()
 
     init {
         println("Connected to server: ${socket.inetAddress.hostAddress}")
     }
 
     fun start() {
-        frame.setSize(400, 400)
-        frame.add(panel)
-        frame.isVisible = true
-        frame.addWindowListener(object : WindowAdapter() {
-            override fun windowClosing(e: WindowEvent) {
-                println("stopping window")
-                //connected = true
 
-                try {
-                    socket.close()
-                } catch (e: Exception) { e.printStackTrace() }
-
-                frame.dispose()
-                Thread.currentThread().join(1)
-            }
-        })
+        SwingUtilities.invokeLater {
+            frame.init(panel)
+        }
 
         // Socket input thread
         Thread {
@@ -64,8 +53,8 @@ object Client {
         // Client thread
         while (true) {
             if (connected)
-            sendToServer("players", "")
-            Thread.sleep(100)
+                //sendToServer("getPositions", "")
+                Thread.sleep(16)
         }
     }
 
@@ -78,8 +67,9 @@ object Client {
                 connected = true
             }
             "players" -> {
-                println("received players :\n${request.data}")
-                panel.players.addAll(request.data as List<Player>)
+                synchronized(panel.players) {
+                    panel.players.addAll(request.data as List<Player>)
+                }
             }
             "message" -> {
                 println("${request.data}")
@@ -90,6 +80,7 @@ object Client {
 
     fun sendToServer(command: String, data: Any) {
         val req = Request(command, data)
+        output.reset()
         output.writeObject(req)
     }
 
